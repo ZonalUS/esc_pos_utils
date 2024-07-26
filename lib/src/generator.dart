@@ -44,8 +44,7 @@ class Generator extends PrintingGenerator {
 
   Generator(
     this._paperSize,
-    this._profile,
-     {
+    this._profile, {
     this.spaceBetweenRows = 5,
     this.chineseEnabled = false,
     this.globalStyles = const PosStyles(fontType: PosFontType.fontA),
@@ -332,6 +331,11 @@ class Generator extends PrintingGenerator {
 
     bytes +=
         fontType == PosFontType.fontA ? cFontA.codeUnits : cFontB.codeUnits;
+
+    bytes += Uint8List.fromList(
+      List.from(cSizeGSn.codeUnits)
+        ..add(PosTextSize.decSize(styles.height, styles.width)),
+    );
 
     // Characters size
     // if (GSorESC == 'gs') {
