@@ -13,26 +13,12 @@ import 'package:image/image.dart';
 import 'package:esc_pos_utils/esc_pos_utils.dart';
 import 'commands.dart';
 
-abstract class PrintingGenerator {
-  void generate();
-
-  List<int> setGlobalCodeTable(String codeTable);
-  void setGlobalFont(PosFontType? font);
-  List<int> image(Image imgSrc, {PosAlign align = PosAlign.center});
-  List<int> text(String text, {PosStyles? styles, int linesAfter = 0});
-  List<int> row(List<PosColumn> cols);
-  List<int> hr(
-      {String ch = '-', int? len, int linesAfter = 0, PosStyles? styles});
-  List<int> cut({PosCutMode mode = PosCutMode.full});
-  List<int> feed(int n);
-}
-
-class Generator extends PrintingGenerator {
+class GeneratorImpact extends PrintingGenerator {
   PosStyles globalStyles =
       PosStyles(fontType: PosFontType.fontA, align: PosAlign.center);
   // Ticket config
   final PaperSize _paperSize;
-  final String GSorESC;
+  final String gSorESC;
   CapabilityProfile _profile;
 
   // Global styles
@@ -42,10 +28,10 @@ class Generator extends PrintingGenerator {
   // Current styles
   int spaceBetweenRows;
 
-  Generator(
+  GeneratorImpact(
     this._paperSize,
     this._profile,
-    this.GSorESC, {
+    this.gSorESC, {
     this.spaceBetweenRows = 5,
     this.chineseEnabled = false,
     this.globalStyles = const PosStyles(fontType: PosFontType.fontA),
@@ -279,6 +265,7 @@ class Generator extends PrintingGenerator {
 
   /// Set global code table which will be used instead of the default printer's code table
   /// (even after resetting)
+  ///
   @override
   List<int> setGlobalCodeTable(String codeTable) {
     List<int> bytes = [];
@@ -334,7 +321,7 @@ class Generator extends PrintingGenerator {
         fontType == PosFontType.fontA ? cFontA.codeUnits : cFontB.codeUnits;
 
     // Characters size
-    if (GSorESC == 'gs') {
+    if (gSorESC == 'gs') {
       bytes += Uint8List.fromList(
         List.from(cSizeGSn.codeUnits)
           ..add(PosTextSize.decSize(styles.height, styles.width)),
@@ -377,14 +364,9 @@ class Generator extends PrintingGenerator {
     return bytes;
   }
 
-
   @override
-  List<int> text(
-    String text, {
-    PosStyles? styles,
-    int linesAfter = 0,
-  }) {
-
+  List<int> text(String text,
+      {PosStyles? styles, int linesAfter = 0, bool alternativeColor = false}) {
     List<int> bytes = [];
     bytes += _text(
       _encode(text, styles: styles, alternativeColor: alternativeColor),
@@ -492,47 +474,106 @@ class Generator extends PrintingGenerator {
   ///
   /// A row contains up to 12 columns. A column has a width between 1 and 12.
   /// Total width of columns in one row must be equal 12.
-
+  ///
   @override
-  List<int> row(List<PosColumn> cols) {
-    List<int> bytes = [];
-    Map<String, List<PosColumn>> rows = {'current': cols, 'next': []};
+  List<int> row(
+    List<PosColumn> cols, {
+    PosStyles? styles,
+    bool alternativeColor = false,
+    bool isProduct = false,
+  }) {
+    List<String> strings = cols.map((c) => c.text).toList();
 
+    int maxStringLenght = isProduct ? 40 : _paperSize.fontACharsPerLine;
 
-    int maxStringLenght = _paperSize.fontACharsPerLine;
-
-    // if (styles != null) {
-    //   maxStringLenght = (_paperSize.fontACharsPerLine ~/ 1.2);
-    // }
-
-    // Calculate the total length of all strings combined
     int totalStringLength =
         strings.fold(0, (length, string) => length + string.length);
 
-    // Calculate the number of spaces needed
     int totalSpaces = maxStringLenght - totalStringLength;
 
-    // Calculate the number of gaps between the strings
     int gaps = strings.length - 1;
 
-    // If there are no gaps, return the joined string as is
-    if (gaps == 0) return text(strings.join());
+    if (gaps == 0) {
+      // If there are no gaps, just fill the remaining spaces after the single string
 
-    // Calculate spaces to distribute between each gap
-    int spacesBetween = totalSpaces ~/ gaps;
-    int extraSpaces = totalSpaces % gaps;
+      if (gaps == 0) return text(strings.join());
+    }
 
-    // Build the resulting string
+    if (strings.length != 3) {
+      int spacesBetween = totalSpaces ~/ gaps;
+      int extraSpaces = totalSpaces % gaps;
+
+      String result = '';
+      for (int i = 0; i < strings.length; i++) {
+        result += strings[i];
+        if (i < gaps) {
+          // Add spaces between the words
+          result += ' ' * (spacesBetween + (i < extraSpaces ? 1 : 0));
+        }
+      }
+
+      return text(result, styles: styles, alternativeColor: alternativeColor);
+    }
+
+    // Define the number of spaces you want between the first and second string
+    int spacesBetweenFirstAndSecond = isProduct ? 4 : 2;
+    int spacesBetweenOthers = totalSpaces - spacesBetweenFirstAndSecond;
+
     String result = '';
+
     for (int i = 0; i < strings.length; i++) {
       result += strings[i];
-      if (i < gaps) {
-        // Add spaces between the words
-        result += ' ' * (spacesBetween + (i < extraSpaces ? 1 : 0));
+      if (i == 0 && strings.length == 3) {
+        // Add specific number of spaces after the first string
+        result += ' ' * spacesBetweenFirstAndSecond;
+      } else if (i < gaps) {
+        // Add remaining spaces between the second and third string
+
+        result += ' ' * spacesBetweenOthers;
       }
     }
+
     return text(result, styles: styles, alternativeColor: alternativeColor);
   }
+
+  // List<int> row(List<PosColumn> cols,
+  //     {PosStyles? styles, bool alternativeColor = false}) {
+  //   List<String> strings = cols.map((c) => c.text).toList();
+
+  //   int maxStringLenght = _paperSize.fontACharsPerLine;
+
+  //   // if (styles != null) {
+  //   //   maxStringLenght = (_paperSize.fontACharsPerLine ~/ 1.2);
+  //   // }
+
+  //   // Calculate the total length of all strings combined
+  //   int totalStringLength =
+  //       strings.fold(0, (length, string) => length + string.length);
+
+  //   // Calculate the number of spaces needed
+  //   int totalSpaces = maxStringLenght - totalStringLength;
+
+  //   // Calculate the number of gaps between the strings
+  //   int gaps = strings.length - 1;
+
+  //   // If there are no gaps, return the joined string as is
+  //   if (gaps == 0) return text(strings.join());
+
+  //   // Calculate spaces to distribute between each gap
+  //   int spacesBetween = totalSpaces ~/ gaps;
+  //   int extraSpaces = totalSpaces % gaps;
+
+  //   // Build the resulting string
+  //   String result = '';
+  //   for (int i = 0; i < strings.length; i++) {
+  //     result += strings[i];
+  //     if (i < gaps) {
+  //       // Add spaces between the words
+  //       result += ' ' * (spacesBetween + (i < extraSpaces ? 1 : 0));
+  //     }
+  //   }
+  //   return text(result, styles: styles, alternativeColor: alternativeColor);
+  // }
 
   /// Print an image using (ESC *) command
   ///
