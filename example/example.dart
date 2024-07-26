@@ -4,7 +4,7 @@ import 'package:image/image.dart';
 
 Future<void> main() async {
   final profile = await CapabilityProfile.load();
-  final generator = Generator(PaperSize(), profile, 'gs');
+  final generator = Generator(PaperSize(), profile, );
   List<int> bytes = [];
 
   bytes += generator.text(

@@ -32,7 +32,7 @@ class Generator extends PrintingGenerator {
       PosStyles(fontType: PosFontType.fontA, align: PosAlign.center);
   // Ticket config
   final PaperSize _paperSize;
-  final String GSorESC;
+
   CapabilityProfile _profile;
 
   // Global styles
@@ -45,7 +45,7 @@ class Generator extends PrintingGenerator {
   Generator(
     this._paperSize,
     this._profile,
-    this.GSorESC, {
+     {
     this.spaceBetweenRows = 5,
     this.chineseEnabled = false,
     this.globalStyles = const PosStyles(fontType: PosFontType.fontA),
@@ -334,17 +334,17 @@ class Generator extends PrintingGenerator {
         fontType == PosFontType.fontA ? cFontA.codeUnits : cFontB.codeUnits;
 
     // Characters size
-    if (GSorESC == 'gs') {
-      bytes += Uint8List.fromList(
-        List.from(cSizeGSn.codeUnits)
-          ..add(PosTextSize.decSize(styles.height, styles.width)),
-      );
-    } else {
-      bytes += Uint8List.fromList(
-        List.from(cSizeESCn.codeUnits)
-          ..add(PosTextSize.decSize(styles.height, styles.width)),
-      );
-    }
+    // if (GSorESC == 'gs') {
+    //   bytes += Uint8List.fromList(
+    //     List.from(cSizeGSn.codeUnits)
+    //       ..add(PosTextSize.decSize(styles.height, styles.width)),
+    //   );
+    // } else {
+    //   bytes += Uint8List.fromList(
+    //     List.from(cSizeESCn.codeUnits)
+    //       ..add(PosTextSize.decSize(styles.height, styles.width)),
+    //   );
+    // }
 
     // Set local code table
     if (styles.codeTable != null) {
@@ -377,17 +377,18 @@ class Generator extends PrintingGenerator {
     return bytes;
   }
 
-
   @override
   List<int> text(
     String text, {
     PosStyles? styles,
     int linesAfter = 0,
   }) {
-
     List<int> bytes = [];
     bytes += _text(
-      _encode(text, styles: styles, alternativeColor: alternativeColor),
+      _encode(
+        text,
+        styles: styles,
+      ),
       styles: styles,
     );
     // Ensure at least one line break after the text
@@ -498,40 +499,54 @@ class Generator extends PrintingGenerator {
     List<int> bytes = [];
     Map<String, List<PosColumn>> rows = {'current': cols, 'next': []};
 
+    final isSumValid = cols.fold(0, (int sum, col) => sum + col.width) == 12;
 
-    int maxStringLenght = _paperSize.fontACharsPerLine;
+    if (!isSumValid) {
+      throw Exception('Total columns width must be equal to 12');
+    }
 
-    // if (styles != null) {
-    //   maxStringLenght = (_paperSize.fontACharsPerLine ~/ 1.2);
-    // }
+    void _processRow() {
+      for (int i = 0; i < rows['current']!.length; ++i) {
+        PosColumn col = rows['current']![i];
 
-    // Calculate the total length of all strings combined
-    int totalStringLength =
-        strings.fold(0, (length, string) => length + string.length);
+        int colInd = rows['current']!
+            .sublist(0, i)
+            .fold(0, (int sum, col) => sum + col.width);
+        double charWidth = _getCharWidth(col.styles);
+        double fromPos = _colIndToPosition(colInd);
+        final double toPos =
+            _colIndToPosition(colInd + col.width) - spaceBetweenRows;
+        int maxCharacters = ((toPos - fromPos) / charWidth).floor();
 
-    // Calculate the number of spaces needed
-    int totalSpaces = maxStringLenght - totalStringLength;
-
-    // Calculate the number of gaps between the strings
-    int gaps = strings.length - 1;
-
-    // If there are no gaps, return the joined string as is
-    if (gaps == 0) return text(strings.join());
-
-    // Calculate spaces to distribute between each gap
-    int spacesBetween = totalSpaces ~/ gaps;
-    int extraSpaces = totalSpaces % gaps;
-
-    // Build the resulting string
-    String result = '';
-    for (int i = 0; i < strings.length; i++) {
-      result += strings[i];
-      if (i < gaps) {
-        // Add spaces between the words
-        result += ' ' * (spacesBetween + (i < extraSpaces ? 1 : 0));
+        int realCharacters = col.text.length;
+        if (realCharacters > maxCharacters) {
+          rows['next']!.add(PosColumn(
+            text: col.text.substring(maxCharacters),
+            width: col.width,
+            styles: col.styles,
+          ));
+          col.text = col.text.substring(0, maxCharacters);
+        } else {
+          rows['next']!
+              .add(PosColumn(text: '', width: col.width, styles: col.styles));
+        }
+        bytes += _text(
+          _encode(col.text),
+          styles: col.styles,
+          colInd: colInd,
+          colWidth: col.width,
+        );
       }
     }
-    return text(result, styles: styles, alternativeColor: alternativeColor);
+
+    while (rows['current']!.any((col) => col.text.isNotEmpty)) {
+      _processRow();
+      bytes += emptyLines(1);
+      rows['current'] = rows['next']!;
+      rows['next'] = [];
+    }
+
+    return bytes;
   }
 
   /// Print an image using (ESC *) command
